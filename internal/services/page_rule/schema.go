@@ -4,7 +4,9 @@ package page_rule
 
 import (
 	"context"
+
 	"github.com/cloudflare/terraform-provider-cloudflare/internal/customfield"
+	"github.com/cloudflare/terraform-provider-cloudflare/internal/utils"
 	"github.com/hashicorp/terraform-plugin-framework-timetypes/timetypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -25,6 +27,7 @@ var _ resource.ResourceWithConfigValidators = (*PageRuleResource)(nil)
 
 func ResourceSchema(ctx context.Context) schema.Schema {
 	return schema.Schema{
+		Version: utils.GetSchemaVersion(0, 500),
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description:   "Identifier.",
