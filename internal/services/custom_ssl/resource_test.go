@@ -105,6 +105,11 @@ func TestAccCustomSSL_Basic(t *testing.T) {
 		t.Fatalf("Failed to generate certificate: %s", err)
 	}
 
+	cert2, key2, err := utils.GenerateEphemeralCertAndKey([]string{domain}, expiry)
+	if err != nil {
+		t.Fatalf("Failed to generate certificate: %s", err)
+	}
+
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			acctest.TestAccPreCheck_Credentials(t)
@@ -116,6 +121,29 @@ func TestAccCustomSSL_Basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCustomSSLBasicConfig(zoneID, rnd, cert, key),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(name, tfjsonpath.New(consts.ZoneIDSchemaKey), knownvalue.StringExact(zoneID)),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("bundle_method"), knownvalue.StringExact("force")),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("id"), knownvalue.NotNull()),
+				},
+			},
+			{
+				ResourceName:      name,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					return fmt.Sprintf("%s/%s", zoneID, s.RootModule().Resources[name].Primary.ID), nil
+				},
+				ImportStateVerifyIgnore: []string{
+					"certificate", // write-only, not returned by API
+					"private_key", // write-only, not returned by API
+					"status",      // async state transition (pending -> active)
+					"modified_on", // timestamp changes between operations
+					"type",        // default value handling
+				},
+			},
+			{
+				Config: testAccCustomSSLBasicConfig(zoneID, rnd, cert2, key2),
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownValue(name, tfjsonpath.New(consts.ZoneIDSchemaKey), knownvalue.StringExact(zoneID)),
 					statecheck.ExpectKnownValue(name, tfjsonpath.New("bundle_method"), knownvalue.StringExact("force")),
@@ -180,6 +208,68 @@ func TestAccCustomSSL_WithGeoRestrictions(t *testing.T) {
 	})
 }
 
+// TestAccCustomSSL_WithPolicy tests the optional policy attribute.
+// This validates that policy vs policy_restrictions does not cause drift.
+// Note: This test may fail with quota errors on zones with limited custom certificate slots.
+func TestAccCustomSSL_WithPolicy(t *testing.T) {
+	rnd := utils.GenerateRandomResourceName()
+	name := "cloudflare_custom_ssl." + rnd
+	zoneID := os.Getenv("CLOUDFLARE_ZONE_ID")
+	domain := os.Getenv("CLOUDFLARE_DOMAIN")
+
+	expiry := time.Now().Add(time.Hour * 1)
+	cert, key, err := utils.GenerateEphemeralCertAndKey([]string{domain}, expiry)
+	if err != nil {
+		t.Fatalf("Failed to generate certificate: %s", err)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			acctest.TestAccPreCheck_Credentials(t)
+			acctest.TestAccPreCheck_ZoneID(t)
+			acctest.TestAccPreCheck_Domain(t)
+		},
+		ProtoV6ProviderFactories: acctest.TestAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckCloudflareCustomSSLDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCustomSSLWithPolicyConfig(zoneID, rnd, cert, key),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(name, tfjsonpath.New(consts.ZoneIDSchemaKey), knownvalue.StringExact(zoneID)),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("bundle_method"), knownvalue.StringExact("force")),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("policy"), knownvalue.StringExact("country: US")),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("id"), knownvalue.NotNull()),
+				},
+			},
+			{
+				Config: testAccCustomSSLWithPolicyConfig(zoneID, rnd, cert, key),
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(name, tfjsonpath.New(consts.ZoneIDSchemaKey), knownvalue.StringExact(zoneID)),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("bundle_method"), knownvalue.StringExact("force")),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("policy_restrictions"), knownvalue.StringExact("country: US")),
+					statecheck.ExpectKnownValue(name, tfjsonpath.New("id"), knownvalue.NotNull()),
+				},
+				PlanOnly: true,
+			},
+			{
+				ResourceName:      name,
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateIdFunc: func(s *terraform.State) (string, error) {
+					return fmt.Sprintf("%s/%s", zoneID, s.RootModule().Resources[name].Primary.ID), nil
+				},
+				ImportStateVerifyIgnore: []string{
+					"certificate", // write-only, not returned by API
+					"private_key", // write-only, not returned by API
+					"status",      // async state transition (pending -> active)
+					"modified_on", // timestamp changes between operations
+					"type",        // default value handling
+				},
+			},
+		},
+	})
+}
+
 func testAccCustomSSLBasicConfig(zoneID, rnd, cert, key string) string {
 	return fmt.Sprintf(`
 resource "cloudflare_custom_ssl" "%[2]s" {
@@ -208,5 +298,21 @@ EOT
   geo_restrictions = {
     label = "us"
   }
+}`, zoneID, rnd, cert, key)
+}
+
+func testAccCustomSSLWithPolicyConfig(zoneID, rnd, cert, key string) string {
+	return fmt.Sprintf(`
+resource "cloudflare_custom_ssl" "%[2]s" {
+  zone_id       = "%[1]s"
+  certificate   = <<EOT
+%[3]s
+EOT
+  private_key   = <<EOT
+%[4]s
+EOT
+  bundle_method = "force"
+  policy = "country: US"
+  type = "sni_custom"
 }`, zoneID, rnd, cert, key)
 }
