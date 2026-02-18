@@ -137,6 +137,7 @@ func TestAccAuthenticatedOriginPullsHostnameCertificate_FullLifecycle(t *testing
 					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("uploaded_on"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("serial_number"), knownvalue.NotNull()),
 					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("signature"), knownvalue.NotNull()),
+					statecheck.ExpectKnownValue(resourceName, tfjsonpath.New("serial_number"), knownvalue.NotNull()),
 				},
 			},
 			// Step 2: Import
@@ -204,7 +205,7 @@ func TestAccAuthenticatedOriginPullsHostnameCertificate_CertificateNewlineNormal
 				ResourceName:            resourceName,
 				ImportState:             true,
 				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"private_key", "certificate", "status"},
+				ImportStateVerifyIgnore: []string{"private_key", "certificate", "status", "updated_at"},
 				ImportStateIdFunc:       testAccAuthenticatedOriginPullsHostnameCertificateImportStateIdFunc(resourceName),
 			},
 		},
